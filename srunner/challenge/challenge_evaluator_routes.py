@@ -11,49 +11,43 @@ CARLA Challenge Evaluator Routes
 Provisional code to evaluate Autonomous Agents for the CARLA Autonomous Driving challenge
 """
 from __future__ import print_function
-import argparse
-from argparse import RawTextHelpFormatter
-import importlib
-import math
-import sys
-import os
-import json
-import random
-import py_trees
 
+import argparse
+import importlib
+import json
+import math
+import os
+import random
+import sys
 import xml.etree.ElementTree as ET
+from argparse import RawTextHelpFormatter
 
 import carla
+import py_trees
+
 import srunner.challenge.utils.route_configuration_parser as parser
+from srunner.challenge.autoagents.autonomous_agent import Track
 from srunner.challenge.envs.scene_layout_sensors import SceneLayoutReader, ObjectFinder
 from srunner.challenge.envs.sensor_interface import CallBack, CANBusSensor, HDMapReader
-from srunner.challenge.autoagents.autonomous_agent import Track
-
-from srunner.scenariomanager.timer import GameTime, TimeOut
-
+from srunner.challenge.utils.route_configuration_parser import TRIGGER_THRESHOLD
+from srunner.challenge.utils.route_manipulation import interpolate_trajectory
 from srunner.scenariomanager.carla_data_provider import CarlaActorPool, CarlaDataProvider
-
+from srunner.scenariomanager.timer import GameTime
+from srunner.scenariomanager.traffic_events import TrafficEventType
+from srunner.scenarios.background_activity import BackgroundActivity
 from srunner.scenarios.control_loss import ControlLoss
 from srunner.scenarios.follow_leading_vehicle import FollowLeadingVehicle
-from srunner.scenarios.object_crash_vehicle import DynamicObjectCrossing
-from srunner.scenarios.object_crash_intersection import VehicleTurningRight, VehicleTurningLeft
-from srunner.scenarios.other_leading_vehicle import OtherLeadingVehicle
-from srunner.scenarios.opposite_vehicle_taking_priority import OppositeVehicleRunningRedLight
-from srunner.scenarios.signalized_junction_left_turn import SignalizedJunctionLeftTurn
-from srunner.scenarios.signalized_junction_right_turn import SignalizedJunctionRightTurn
-from srunner.scenarios.no_signal_junction_crossing import NoSignalJunctionCrossing
 from srunner.scenarios.maneuver_opposite_direction import ManeuverOppositeDirection
 from srunner.scenarios.master_scenario import MasterScenario
-from srunner.challenge.utils.route_configuration_parser import TRIGGER_THRESHOLD
-
-# The configuration parser
-
-from srunner.scenarios.config_parser import ActorConfiguration, ScenarioConfiguration, \
-    RouteConfiguration, ActorConfigurationData
-from srunner.scenariomanager.traffic_events import TrafficEvent, TrafficEventType
-
-from srunner.challenge.utils.route_manipulation import interpolate_trajectory
-
+from srunner.scenarios.no_signal_junction_crossing import NoSignalJunctionCrossing
+from srunner.scenarios.object_crash_intersection import VehicleTurningRight, VehicleTurningLeft
+from srunner.scenarios.object_crash_vehicle import DynamicObjectCrossing
+from srunner.scenarios.opposite_vehicle_taking_priority import OppositeVehicleRunningRedLight
+from srunner.scenarios.other_leading_vehicle import OtherLeadingVehicle
+from srunner.scenarios.signalized_junction_left_turn import SignalizedJunctionLeftTurn
+from srunner.scenarios.signalized_junction_right_turn import SignalizedJunctionRightTurn
+from srunner.tools.config_parser import ActorConfiguration, ScenarioConfiguration, \
+    ActorConfigurationData
 
 number_class_translation = {
 
@@ -393,6 +387,32 @@ class ChallengeEvaluator(object):
         CarlaDataProvider.register_actor(self.ego_vehicle)
 
         return MasterScenario(self.world, self.ego_vehicle, master_scenario_configuration)
+
+    def build_background_scenario(self, town_name):
+        scenario_configuration = ScenarioConfiguration()
+        scenario_configuration.route = None
+        scenario_configuration.town = town_name
+
+        model = 'vehicle.*'
+        transform = carla.Transform()
+        autopilot = True
+        random = True
+
+        if town_name == 'Town01' or town_name == 'Town02':
+            amount = 40
+        elif town_name == 'Town03' or 'Town05':
+            amount = 80
+        elif town_name == 'Town04':
+            amount = 100
+        elif town_name == 'Town06' or town_name == 'Town07':
+            amount = 50
+        else:
+            amount = 1
+
+        actor_configuration_instance = ActorConfigurationData(model, transform, autopilot, random, amount)
+        scenario_configuration.other_actors.append(actor_configuration_instance)
+
+        return BackgroundActivity(self.world, self.ego_vehicle, scenario_configuration)
 
     def build_scenario_instances(self, scenario_definition_vec, town_name):
         """
@@ -751,6 +771,7 @@ class ChallengeEvaluator(object):
             # load the self.world variable to be used during the route
             self.load_world(client, route_description['town_name'])
             # Set the actor pool so the scenarios can prepare themselves when needed
+            CarlaActorPool.set_client(client)
             CarlaActorPool.set_world(self.world)
             # Also se the Data provider pool.
             CarlaDataProvider.set_world(self.world)
@@ -785,7 +806,10 @@ class ChallengeEvaluator(object):
             # build the master scenario based on the route and the target.
             self.master_scenario = self.build_master_scenario(route_description['trajectory'],
                                                               route_description['town_name'])
-            list_scenarios = [self.master_scenario]
+
+            self.background_scenario = self.build_background_scenario(route_description['town_name'])
+
+            list_scenarios = [self.master_scenario, self.background_scenario]
             # build the instance based on the parsed definitions.
             if self.debug > 0:
                 for scenario in sampled_scenarios_definitions:

@@ -11,18 +11,18 @@ priority, e.g. by running a red traffic light.
 """
 
 from __future__ import print_function
+
 import sys
 
-import py_trees
 import carla
+import py_trees
 
-from srunner.scenarios.basic_scenario import *
-from srunner.scenarios.scenario_helper import *
 from srunner.scenariomanager.atomic_scenario_behavior import *
 from srunner.scenariomanager.atomic_scenario_criteria import *
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import TimeOut
-
+from srunner.scenarios.basic_scenario import *
+from srunner.tools.scenario_helper import *
 
 RUNNING_RED_LIGHT_SCENARIOS = [
     "OppositeVehicleRunningRedLight"
